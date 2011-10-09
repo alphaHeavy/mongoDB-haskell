@@ -6,7 +6,9 @@ module Database.MongoDB.Internal.Util where
 
 import Control.Applicative (Applicative(..), (<$>))
 import Network (PortID(..))
-import Data.UString as U (cons, append)
+--import Data.UString as U (cons, append)
+import Data.Text (Text)
+import Data.Text as T (cons, append)
 import Data.Bits (Bits, (.|.))
 import Data.Bson
 import Data.ByteString.Lazy as S (ByteString, length, append, hGet)
@@ -67,9 +69,10 @@ bitOr :: (Bits a) => [a] -> a
 -- ^ bit-or all numbers together
 bitOr = foldl (.|.) 0
 
-(<.>) :: UString -> UString -> UString
+--(<.>) :: UString -> UString -> UString
+(<.>) :: Text -> Text -> Text
 -- ^ Concat first and second together with period in between. Eg. @\"hello\" \<.\> \"world\" = \"hello.world\"@
-a <.> b = U.append a (cons '.' b)
+a <.> b = T.append a (cons '.' b)
 
 true1 :: Label -> Document -> Bool
 -- ^ Is field's value a 1 or True (MongoDB use both Int and Bools for truth values). Error if field not in document or field not a Num or Bool.

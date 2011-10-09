@@ -26,7 +26,8 @@ import Control.Monad.Error (ErrorT(..), lift, throwError)
 import Control.Monad.MVar
 import Control.Monad (forM_)
 import Control.Applicative ((<$>))
-import Data.UString (UString, unpack)
+--import Data.UString (UString, unpack)
+import Data.Text (Text, unpack)
 import Data.Bson as D (Document, lookup, at, (=:))
 import Database.MongoDB.Query (access, slaveOk, Failure(ConnectionFailure), Command, runCommand)
 import Database.MongoDB.Internal.Util (untilSuccess, liftIOE, runIOE, updateAssocs, shuffle)
@@ -105,12 +106,14 @@ connect' timeoutSecs (Host hostname port) = do
 
 -- * Replica Set
 
-type ReplicaSetName = UString
+--type ReplicaSetName = UString
+type ReplicaSetName = Text
 
 -- | Maintains a connection (created on demand) to each server in the named replica set
 data ReplicaSet = ReplicaSet ReplicaSetName (MVar [(Host, Maybe Pipe)]) Secs
 
-replSetName :: ReplicaSet -> UString
+--replSetName :: ReplicaSet -> UString
+replSetName :: ReplicaSet -> Text
 -- ^ name of connected replica set
 replSetName (ReplicaSet rsName _ _) = rsName
 

@@ -39,7 +39,9 @@ module Database.MongoDB.Query (
 ) where
 
 import Prelude as X hiding (lookup)
-import Data.UString as U (UString, dropWhile, any, tail)
+--import Data.UString as U (UString, dropWhile, any, tail)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Bson (Document, at, valueAt, lookup, look, Field(..), (=:), (=?), Label, Value(String,Doc), Javascript, genObjectId)
 import Database.MongoDB.Internal.Protocol (Pipe, Notice(..), Request(GetMore), Reply(..), QueryOption(..), ResponseFlag(..), InsertOption(..), UpdateOption(..), DeleteOption(..), CursorId, FullCollection, Username, Password, pwKey)
 import qualified Database.MongoDB.Internal.Protocol as P (send, call, Request(Query))
@@ -165,7 +167,8 @@ instance (MonadDB m, Monoid w) => MonadDB (RWST r w s m) where
 
 -- * Database
 
-type Database = UString
+--type Database = UString
+type Database = Text
 
 allDatabases :: (MonadIO' m) => Action m [Database]
 -- ^ List all databases residing on server
@@ -189,7 +192,8 @@ auth usr pss = do
 
 -- * Collection
 
-type Collection = UString
+--type Collection = UString
+type Collection = Text
 -- ^ Collection name (not prefixed with database)
 
 allCollections :: (MonadControlIO m, Functor m) => Action m [Collection]
@@ -199,8 +203,8 @@ allCollections = do
 	docs <- rest =<< find (query [] "system.namespaces") {sort = ["name" =: (1 :: Int)]}
 	return . filter (not . isSpecial db) . map dropDbPrefix $ map (at "name") docs
  where
- 	dropDbPrefix = U.tail . U.dropWhile (/= '.')
- 	isSpecial db col = U.any (== '$') col && db <.> col /= "local.oplog.$main"
+ 	dropDbPrefix = T.tail . T.dropWhile (/= '.')
+ 	isSpecial db col = T.any (== '$') col && db <.> col /= "local.oplog.$main"
 
 -- * Selection
 
@@ -408,23 +412,30 @@ queryRequest isExplain Query{..} = do
 	ctx <- Action ask
 	return $ queryRequest' (myReadMode ctx) (myDatabase ctx)
  where
-	queryRequest' rm db =
-		( P.Query (readModeOption rm ++ options)
-		          (db <.> coll selection)
-		          (fromIntegral skip)
-		          qBS
-		          (if null special
-		             then selector selection
-		             else ("$query" =: selector selection) : special)
-		          project
-		, remainingLimit )
-	 where
-		(qBS, remainingLimit) = batchSizeRemainingLimit batchSize limit
-		mOrder = if null sort then Nothing else Just ("$orderby" =: sort)
-		mSnapshot = if snapshot then Just ("$snapshot" =: True) else Nothing
-		mHint = if null hint then Nothing else Just ("$hint" =: hint)
-		mExplain = if isExplain then Just ("$explain" =: True) else Nothing
-		special = catMaybes [mOrder, mSnapshot, mHint, mExplain]
+--	queryRequest' rm db = (P.Query{..}, remainingLimit) where
+--		qOptions = readModeOption rm ++ options
+--		qFullCollection = db <.> coll selection
+--		qSkip = fromIntegral skip
+--		(qBatchSize, remainingLimit) = batchSizeRemainingLimit batchSize limit
+--		qProjector = project
+        queryRequest' rm db = 
+          ( P.Query (readModeOption rm ++ options)
+                    (db <.> coll selection)
+                    (fromIntegral skip)
+                    qBS
+                    (if null special
+                        then selector selection
+                        else ("$query" =: selector selection) : special)
+                    project
+          , remainingLimit)
+          where
+            (qBS, remainingLimit) = batchSizeRemainingLimit batchSize limit
+            mOrder = if null sort then Nothing else Just ("$orderby" =: sort)
+            mSnapshot = if snapshot then Just ("$snapshot" =: True) else Nothing
+            mHint = if null hint then Nothing else Just ("$hint" =: hint)
+	    mExplain = if isExplain then Just ("$explain" =: True) else Nothing
+	    special = catMaybes [mOrder, mSnapshot, mHint, mExplain]
+--	    qSelector = if null special then s else ("$query" =: s) : special where s = selector selection
 
 batchSizeRemainingLimit :: BatchSize -> Limit -> (Int32, Limit)
 -- ^ Given batchSize and limit return P.qBatchSize and remaining limit
@@ -649,7 +660,8 @@ runCommand :: (MonadIO' m) => Command -> Action m Document
 runCommand c = maybe err id <$> findOne (query c "$cmd") where
 	err = error $ "Nothing returned for command: " ++ show c
 
-runCommand1 :: (MonadIO' m) => UString -> Action m Document
+--runCommand1 :: (MonadIO' m) => UString -> Action m Document
+runCommand1 :: (MonadIO' m) => Text -> Action m Document
 -- ^ @runCommand1 foo = runCommand [foo =: 1]@
 runCommand1 c = runCommand [c =: (1 :: Int)]
 
