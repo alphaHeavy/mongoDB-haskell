@@ -10,6 +10,7 @@ build-depends:
     base <5,
     binary -any,
     bson -any,
+    text >= 0.11,
     bytestring -any,
     containers -any,
     mtl >= 2,
