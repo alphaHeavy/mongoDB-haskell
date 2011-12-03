@@ -43,8 +43,8 @@ import Prelude as X hiding (lookup)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Bson (Document, at, valueAt, lookup, look, Field(..), (=:), (=?), Label, Value(String,Doc), Javascript, genObjectId)
-import Database.MongoDB.Internal.Protocol (Pipe, Notice(..), Request(GetMore), Reply(..), QueryOption(..), ResponseFlag(..), InsertOption(..), UpdateOption(..), DeleteOption(..), CursorId, FullCollection, Username, Password, pwKey)
-import qualified Database.MongoDB.Internal.Protocol as P (send, call, Request(Query, qOptions, qFullCollection, qSkip, qBatchSize, qSelector, qProjector))
+import Database.MongoDB.Internal.Protocol (Pipe, Notice(..), Request(GetMore, qOptions, qFullCollection, qSkip, qBatchSize, qSelector, qProjector), Reply(..), QueryOption(..), ResponseFlag(..), InsertOption(..), UpdateOption(..), DeleteOption(..), CursorId, FullCollection, Username, Password, pwKey)
+import qualified Database.MongoDB.Internal.Protocol as P (send, call, Request(Query))
 import Database.MongoDB.Internal.Util (MonadIO', loop, liftIOE, true1, (<.>))
 import Control.Monad.MVar
 import Control.Monad.Error

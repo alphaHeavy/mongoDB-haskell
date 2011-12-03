@@ -29,20 +29,21 @@ import Data.Bson (Document)
 import Data.Bson.Binary
 import Data.Binary.Put
 import Data.Binary.Get
+import Data.ByteString (ByteString)
 import Data.Int
 import Data.Bits
 import Data.IORef
-import System.IO.Unsafe (unsafePerformIO)
-import qualified Crypto.Hash.MD5 as MD5 (hash)
---import Data.UString as U (pack, append, toByteString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
-import System.IO.Error as E (try)
+import System.IO.Unsafe (unsafePerformIO)
+import qualified Crypto.Hash.MD5 as MD5 (hash)
+import Control.Exception as E (try)
 import Control.Monad.Error
 import System.IO (hFlush)
 import Database.MongoDB.Internal.Util (whenJust, hGetN, bitOr, byteStringHex)
 
+toByteString :: Text -> ByteString
 toByteString = encodeUtf8
 
 -- * Pipe
