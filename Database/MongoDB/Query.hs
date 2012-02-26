@@ -45,7 +45,7 @@ import Data.Bson (Document, at, valueAt, lookup, look, Field(..), (=:), (=?), La
 import Database.MongoDB.Internal.Protocol (Pipe, Notice(..), Request(GetMore, qOptions, qFullCollection, qSkip, qBatchSize, qSelector, qProjector), Reply(..), QueryOption(..), ResponseFlag(..), InsertOption(..), UpdateOption(..), DeleteOption(..), CursorId, FullCollection, Username, Password, pwKey)
 import qualified Database.MongoDB.Internal.Protocol as P (send, call, Request(Query))
 import Database.MongoDB.Internal.Util (MonadIO', loop, liftIOE, true1, (<.>))
-import Control.Monad.MVar
+import Control.Concurrent.MVar.Lifted
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State (StateT)
@@ -77,11 +77,9 @@ instance MonadTrans Action where
 
 instance MonadTransControl Action where
     newtype StT Action a = StActionT {unStAction :: StT (ReaderT Context) (StT (ErrorT Failure) a)}
-
     liftWith f = Action $ liftWith $ \runError ->
-                            liftWith $ \runReader ->
-                              f (liftM StActionT . runReader . runError . unAction)
-
+                            liftWith $ \runReader' ->
+                              f (liftM StActionT . runReader' . runError . unAction)
     restoreT = Action . restoreT . restoreT . liftM unStAction
 
 access :: (MonadIO m) => Pipe -> AccessMode -> Database -> Action m a -> m (Either Failure a)
@@ -109,6 +107,7 @@ data AccessMode =
 	 ReadStaleOk  -- ^ Read-only action, reading stale data from a slave is OK.
 	| UnconfirmedWrites  -- ^ Read-write action, slave not OK, every write is fire & forget.
 	| ConfirmWrites GetLastError  -- ^ Read-write action, slave not OK, every write is confirmed with getLastError.
+    deriving Show
 
 type GetLastError = Document
 -- ^ Parameters for getLastError command. For example @[\"w\" =: 2]@ tells the server to wait for the write to reach at least two servers in replica set before acknowledging. See <http://www.mongodb.org/display/DOCS/Last+Error+Commands> for more options.
@@ -511,12 +510,21 @@ nextBatch :: (MonadIO m, MonadBaseControl IO m) => Cursor -> Action m [Document]
 -- ^ Return next batch of documents in query result, which will be empty if finished.
 nextBatch (Cursor fcol batchSize var) = modifyMVar var $ \dBatch -> do
 	-- Pre-fetch next batch promise from server and return current batch.
-	Batch limit cid docs <- fulfill dBatch
-	dBatch' <- if cid /= 0 then nextBatch' limit cid else return $ return (Batch 0 0 [])
+	Batch limit cid docs <- fulfill' fcol batchSize dBatch
+	dBatch' <- if cid /= 0 then nextBatch' fcol batchSize limit cid else return $ return (Batch 0 0 [])
 	return (dBatch', docs)
- where
-	nextBatch' limit cid = request [] (GetMore fcol batchSize' cid, remLimit)
-		where (batchSize', remLimit) = batchSizeRemainingLimit batchSize limit
+
+fulfill' :: (MonadIO m) => FullCollection -> BatchSize -> DelayedBatch -> Action m Batch
+-- Discard pre-fetched batch if empty with nonzero cid.
+fulfill' fcol batchSize dBatch = do
+	b@(Batch limit cid docs) <- fulfill dBatch
+	if cid /= 0 && null docs
+		then nextBatch' fcol batchSize limit cid >>= fulfill
+		else return b
+
+nextBatch' :: (MonadIO m) => FullCollection -> BatchSize -> Limit -> CursorId -> Action m DelayedBatch
+nextBatch' fcol batchSize limit cid = request [] (GetMore fcol batchSize' cid, remLimit)
+	where (batchSize', remLimit) = batchSizeRemainingLimit batchSize limit
 
 next :: (MonadIO m, MonadBaseControl IO m) => Cursor -> Action m (Maybe Document)
 -- ^ Return next document in query result, or Nothing if finished.
@@ -524,18 +532,16 @@ next (Cursor fcol batchSize var) = modifyMVar var nextState where
 	-- Pre-fetch next batch promise from server when last one in current batch is returned.
 	-- nextState:: DelayedBatch -> Action m (DelayedBatch, Maybe Document)
 	nextState dBatch = do
-		Batch limit cid docs <- fulfill dBatch
+		Batch limit cid docs <- fulfill' fcol batchSize dBatch
 		case docs of
 			doc : docs' -> do
 				dBatch' <- if null docs' && cid /= 0
-					then nextBatch' limit cid
+					then nextBatch' fcol batchSize limit cid
 					else return $ return (Batch limit cid docs')
 				return (dBatch', Just doc)
 			[] -> if cid == 0
 				then return (return $ Batch 0 0 [], Nothing)  -- finished
-				else error $ "server returned empty batch but says more results on server"
-	nextBatch' limit cid = request [] (GetMore fcol batchSize' cid, remLimit)
-		where (batchSize', remLimit) = batchSizeRemainingLimit batchSize limit
+				else fmap (,Nothing) $ nextBatch' fcol batchSize limit cid
 
 nextN :: (MonadIO m, MonadBaseControl IO m, Functor m) => Int -> Cursor -> Action m [Document]
 -- ^ Return next N documents or less if end is reached
@@ -551,7 +557,7 @@ closeCursor (Cursor _ _ var) = modifyMVar var $ \dBatch -> do
 	unless (cid == 0) $ send [KillCursors [cid]]
 	return $ (return $ Batch 0 0 [], ())
 
-isCursorClosed :: (MonadIO m) => Cursor -> Action m Bool
+isCursorClosed :: (MonadIO m, MonadBase IO m) => Cursor -> Action m Bool
 isCursorClosed (Cursor _ _ var) = do
 		Batch _ cid docs <- fulfill =<< readMVar var
 		return (cid == 0 && null docs)

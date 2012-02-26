@@ -12,7 +12,7 @@ module Database.MongoDB.Connection (
 	globalConnectTimeout, connect, connect',
 	-- * Replica Set
 	ReplicaSetName, openReplicaSet, openReplicaSet',
-	ReplicaSet, primary, secondaryOk, closeReplicaSet, replSetName
+	ReplicaSet, primary, secondaryOk, routedHost, closeReplicaSet, replSetName
 ) where
 
 import Prelude hiding (lookup)
@@ -23,14 +23,14 @@ import Network (HostName, PortID(..), connectTo)
 import Text.ParserCombinators.Parsec as T (parse, many1, letter, digit, char, eof, spaces, try, (<|>))
 import Control.Monad.Identity (runIdentity)
 import Control.Monad.Error (ErrorT(..), lift, throwError)
-import Control.Monad.MVar
+import Control.Concurrent.MVar.Lifted
 import Control.Monad (forM_)
 import Control.Applicative ((<$>))
 --import Data.UString (UString, unpack)
 import Data.Text (Text, unpack)
 import Data.Bson as D (Document, lookup, at, (=:))
 import Database.MongoDB.Query (access, slaveOk, Failure(ConnectionFailure), Command, runCommand)
-import Database.MongoDB.Internal.Util (untilSuccess, liftIOE, runIOE, updateAssocs, shuffle)
+import Database.MongoDB.Internal.Util (untilSuccess, liftIOE, runIOE, updateAssocs, shuffle, mergesortM)
 import Data.List as L (lookup, intersect, partition, (\\), delete)
 import Data.IORef (IORef, newIORef, readIORef)
 import System.Timeout (timeout)
@@ -148,6 +148,15 @@ secondaryOk rs = do
 	hosts <- lift $ shuffle (possibleHosts info)
 	let hosts' = maybe hosts (\p -> delete p hosts ++ [p]) (statedPrimary info)
 	untilSuccess (connection rs Nothing) hosts'
+
+routedHost :: ((Host, Bool) -> (Host, Bool) -> IOE Ordering) -> ReplicaSet -> IOE Pipe
+-- ^ Return a connection to a host using a user-supplied sorting function, which sorts based on a tuple containing the host and a boolean indicating whether the host is primary.
+routedHost f rs = do
+  info <- updateMembers rs
+  hosts <- lift $ shuffle (possibleHosts info)
+  let addIsPrimary h = (h, if Just h == statedPrimary info then True else False)
+  hosts' <- mergesortM (\a b -> f (addIsPrimary a) (addIsPrimary b)) hosts
+  untilSuccess (connection rs Nothing) hosts'
 
 type ReplicaInfo = (Host, Document)
 -- ^ Result of isMaster command on host in replica set. Returned fields are: setName, ismaster, secondary, hosts, [primary]. primary only present when ismaster = false
